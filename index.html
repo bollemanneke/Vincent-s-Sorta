@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Vincent's Sorta</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    .hidden {
+      display: none;
+    }
+    .compare-links a {
+      display: inline-block;
+      margin: 10px 0;
+      padding: 10px;
+      text-decoration: none;
+      color: #000;
+    }
+    .compare-links span {
+      margin: 0 10px;
+    }
+    .remove-link {
+      margin-left: 5px;
+      color: red;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .undo-button {
+      display: inline-block;
+      margin: 10px 0;
+      padding: 10px;
+      text-decoration: none;
+      color: #fff;
+      background-color: #007BFF;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Vincent's Sorta</h1>
+
+  <!-- ============ INPUT SECTION ============ -->
+  <div id="add-item">
+    <h2>Add Items</h2>
+
+    <!-- Load button (only visible before sorting starts) -->
+    <button onclick="loadItems()">Load from File</button>
+
+    <textarea
+      id="item-input"
+      placeholder="Enter items to rank, one per line"
+      rows="10"
+      cols="30"
+    ></textarea><br />
+    
+    <!-- Checkbox to enable/disable initial shuffle -->
+    <label>
+      <input type="checkbox" id="shuffle-check" checked />
+      Shuffle items before sorting
+    </label>
+    <br><br>
+    
+    <button onclick="startSorting()">Start</button>
+  </div>
+
+  <!-- ============ COMPARISON SECTION ============ -->
+  <div id="sort-items" class="hidden">
+    <!-- Save button (accessible during sorting) now ABOVE the heading -->
+    <button onclick="saveItems()">Save to File</button>
+    <br><br>
+
+    <h2>Which one do you prefer?</h2>
+    
+    <div id="compare" class="compare-links">
+      <span>
+        <a href="#" id="item1"></a>
+        <a href="#" id="remove1" class="remove-link">Remove</a>
+      </span>
+      <span>OR</span>
+      <span>
+        <a href="#" id="item2"></a>
+        <a href="#" id="remove2" class="remove-link">Remove</a>
+      </span>
+    </div>
+    <div id="undo-container" class="hidden">
+      <span class="undo-button" onclick="undo()">Undo</span>
+    </div>
+  </div>
+
+  <!-- ============ RESULT SECTION ============ -->
+  <div id="result" class="hidden">
+    <h2>Sorted Items</h2>
+    <ul id="sorted-items"></ul>
+  </div>
+
+  <script>
+    /*************************************************************
+     *  GLOBAL VARIABLES
+     *************************************************************/
+    let originalItems = [];
+    let removedItems = new Set();
+    
+    // The round-robin bottom-up merge sort data
+    let subLists = [];
+    let passSize = 1;
+    let mergesInProgress = [];
+    let mergeIndex = 0;
+    let nextPassSubLists = [];
+
+    // We'll store snapshots to enable full time-travel undo
+    // Each snapshot is a deep copy of all relevant structures
+    let snapshots = [];
+
+    /*************************************************************
+     *  START: Parse user input and possibly shuffle
+     *************************************************************/
+    function startSorting() {
+      const input = document.getElementById('item-input').value.trim();
+      if (!input) {
+        alert('Please enter at least two items.');
+        return;
+      }
+      originalItems = input.split('\n').map(x => x.trim()).filter(x => x);
+
+      if (originalItems.length < 2) {
+        alert('Please enter at least two items.');
+        return;
+      }
+
+      // Hide the input section
+      document.getElementById('add-item').classList.add('hidden');
+      document.getElementById('sort-items').classList.remove('hidden');
+
+      // Check the checkbox to see if we should shuffle
+      const shuffleCheck = document.getElementById('shuffle-check');
+      if (shuffleCheck.checked) {
+        shuffleArray(originalItems);
+      }
+
+      // Initialize subLists with single-item arrays
+      subLists = originalItems.map(item => [item]);
+      passSize = 1;
+      mergesInProgress = [];
+      mergeIndex = 0;
+      nextPassSubLists = [];
+      removedItems = new Set();
+      snapshots = []; // Clear old snapshots
+
+      startPass();
+    }
+
+    /*************************************************************
+     *  PASSES: Pair up sub-lists for merges
+     *************************************************************/
+    function startPass() {
+      mergesInProgress = [];
+      mergeIndex = 0;
+      nextPassSubLists = [];
+
+      if (subLists.length === 1) {
+        // All done, show results
+        showResults(subLists[0]);
+        return;
+      }
+
+      // Pair sub-lists in twos
+      for (let i = 0; i < subLists.length; i += 2) {
+        const left = subLists[i];
+        const right = subLists[i + 1];
+        if (!right) {
+          // leftover single sub-list
+          nextPassSubLists.push(left);
+        } else {
+          mergesInProgress.push({
+            left,
+            right,
+            i: 0,
+            j: 0,
+            merged: []
+          });
+        }
+      }
+      promptNextComparison();
+    }
+
+    /*************************************************************
+     *  PROMPT: Round-robin comparisons
+     *************************************************************/
+    function promptNextComparison() {
+      // Remove any merges that might have finished
+      mergesInProgress = mergesInProgress.filter(m => !isMergeFinished(m));
+
+      // If no merges left, pass is done
+      if (mergesInProgress.length === 0) {
+        subLists = nextPassSubLists;
+        passSize *= 2;
+        startPass();
+        return;
+      }
+
+      // Ensure mergeIndex is valid
+      if (mergeIndex >= mergesInProgress.length) {
+        mergeIndex = 0;
+      }
+
+      const currentMerge = mergesInProgress[mergeIndex];
+      // Skip removed items on left side
+      while (currentMerge.i < currentMerge.left.length &&
+             removedItems.has(currentMerge.left[currentMerge.i])) {
+        currentMerge.i++;
+      }
+      // Skip removed items on right side
+      while (currentMerge.j < currentMerge.right.length &&
+             removedItems.has(currentMerge.right[currentMerge.j])) {
+        currentMerge.j++;
+      }
+
+      // If this merge is finished, finalize and remove it
+      if (isMergeFinished(currentMerge)) {
+        finalizeMerge(currentMerge);
+        mergesInProgress.splice(mergeIndex, 1);
+        promptNextComparison();
+        return;
+      }
+
+      // Otherwise, display the next pair
+      const a = currentMerge.left[currentMerge.i];
+      const b = currentMerge.right[currentMerge.j];
+      displayComparison(a, b);
+    }
+
+    function isMergeFinished(m) {
+      return m.i >= m.left.length || m.j >= m.right.length;
+    }
+
+    function finalizeMerge(m) {
+      // Add leftover items from left
+      while (m.i < m.left.length) {
+        const itm = m.left[m.i++];
+        if (!removedItems.has(itm)) {
+          m.merged.push(itm);
+        }
+      }
+      // Add leftover items from right
+      while (m.j < m.right.length) {
+        const itm = m.right[m.j++];
+        if (!removedItems.has(itm)) {
+          m.merged.push(itm);
+        }
+      }
+      nextPassSubLists.push(m.merged);
+    }
+
+    /*************************************************************
+     *  DISPLAY two items & set event handlers
+     *************************************************************/
+    function displayComparison(a, b) {
+      const item1Link = document.getElementById('item1');
+      const item2Link = document.getElementById('item2');
+      const remove1Link = document.getElementById('remove1');
+      const remove2Link = document.getElementById('remove2');
+
+      item1Link.textContent = a;
+      item2Link.textContent = b;
+
+      // Always focus the first item link
+      setTimeout(() => item1Link.focus(), 0);
+
+      // Clear old handlers
+      item1Link.onclick = e => {
+        e.preventDefault();
+        userChose('a');
+      };
+      item2Link.onclick = e => {
+        e.preventDefault();
+        userChose('b');
+      };
+      remove1Link.onclick = e => {
+        e.preventDefault();
+        userChose('removeA');
+      };
+      remove2Link.onclick = e => {
+        e.preventDefault();
+        userChose('removeB');
+      };
+    }
+
+    /*************************************************************
+     *  USER ACTION: 'a', 'b', 'removeA', 'removeB'
+     *************************************************************/
+    function userChose(choice) {
+      // 1) Before modifying anything, save snapshot so we can time-travel back
+      saveSnapshot();
+
+      const currentMerge = mergesInProgress[mergeIndex];
+      if (!currentMerge || isMergeFinished(currentMerge)) {
+        promptNextComparison();
+        return;
+      }
+
+      const { left, right } = currentMerge;
+      const a = left[currentMerge.i];
+      const b = right[currentMerge.j];
+
+      switch (choice) {
+        case 'a':
+          currentMerge.merged.push(a);
+          currentMerge.i++;
+          break;
+        case 'b':
+          currentMerge.merged.push(b);
+          currentMerge.j++;
+          break;
+        case 'removeA':
+          removedItems.add(a);
+          currentMerge.i++;
+          break;
+        case 'removeB':
+          removedItems.add(b);
+          currentMerge.j++;
+          break;
+      }
+
+      // Round-robin next
+      if (isMergeFinished(currentMerge)) {
+        finalizeMerge(currentMerge);
+        mergesInProgress.splice(mergeIndex, 1);
+      } else {
+        mergeIndex++;
+      }
+
+      promptNextComparison();
+      updateUndoVisibility();
+    }
+
+    /*************************************************************
+     *  UNDO: fully revert to the last saved snapshot
+     *************************************************************/
+    function undo() {
+      if (snapshots.length === 0) return;
+
+      // Restore the last saved snapshot
+      restoreSnapshot();
+
+      // After restoring, resume from that state
+      promptNextComparison();
+      updateUndoVisibility();
+    }
+
+    function updateUndoVisibility() {
+      const undoContainer = document.getElementById('undo-container');
+      if (snapshots.length > 0) {
+        undoContainer.classList.remove('hidden');
+      } else {
+        undoContainer.classList.add('hidden');
+      }
+    }
+
+    /*************************************************************
+     *  SHOW RESULTS
+     *************************************************************/
+    function showResults(finalArray) {
+      document.getElementById('sort-items').classList.add('hidden');
+      document.getElementById('result').classList.remove('hidden');
+
+      const listEl = document.getElementById('sorted-items');
+      listEl.innerHTML = '';
+      // Filter out removed items
+      const filtered = finalArray.filter(item => !removedItems.has(item));
+      filtered.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        listEl.appendChild(li);
+      });
+    }
+
+    /*************************************************************
+     *  SNAPSHOT (Time-Travel) LOGIC
+     *************************************************************/
+    function saveSnapshot() {
+      // We'll do a deep clone of all relevant data
+      const snapshot = {
+        subLists: deepCopy(subLists),
+        passSize,
+        mergesInProgress: deepCopy(mergesInProgress),
+        mergeIndex,
+        nextPassSubLists: deepCopy(nextPassSubLists),
+        removedItems: new Set([...removedItems])
+      };
+      snapshots.push(snapshot);
+    }
+
+    function restoreSnapshot() {
+      const snapshot = snapshots.pop();
+      if (!snapshot) return;
+
+      subLists = deepCopy(snapshot.subLists);
+      passSize = snapshot.passSize;
+      mergesInProgress = deepCopy(snapshot.mergesInProgress);
+      mergeIndex = snapshot.mergeIndex;
+      nextPassSubLists = deepCopy(snapshot.nextPassSubLists);
+      removedItems = new Set([...snapshot.removedItems]);
+    }
+
+    function deepCopy(obj) {
+      return JSON.parse(JSON.stringify(obj));
+    }
+
+    /*************************************************************
+     *  OPTIONAL: Fisher-Yates shuffle 
+     *************************************************************/
+    function shuffleArray(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
+
+    /*************************************************************
+     *  FILE SAVE/LOAD FUNCTIONS
+     *************************************************************/
+    function saveItems() {
+      // Gather all necessary state in one object
+      const state = {
+        originalItems,
+        removedItems: Array.from(removedItems),
+        subLists,
+        passSize,
+        mergesInProgress,
+        mergeIndex,
+        nextPassSubLists,
+        snapshots
+      };
+
+      // Convert to JSON and create a Blob (no success message shown)
+      const jsonString = JSON.stringify(state);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+
+      // Download the file by creating a temporary <a> link
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'sorta-state.json'; // Default filename
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function loadItems() {
+      // Only works while the "Add Items" section is visible
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'application/json';
+      fileInput.onchange = event => {
+        const file = event.target.files[0];
+        if (!file) return;  // User canceled
+
+        const reader = new FileReader();
+        reader.onload = e => {
+          // Parse the JSON data from the file
+          const data = JSON.parse(e.target.result);
+          // Restore into our state
+          originalItems = data.originalItems;
+          removedItems = new Set(data.removedItems);
+          subLists = data.subLists;
+          passSize = data.passSize;
+          mergesInProgress = data.mergesInProgress;
+          mergeIndex = data.mergeIndex;
+          nextPassSubLists = data.nextPassSubLists;
+          snapshots = data.snapshots;
+
+          // Hide the add section and show the sort section
+          document.getElementById('add-item').classList.add('hidden');
+          document.getElementById('sort-items').classList.remove('hidden');
+
+          // Resume sorting from this saved state
+          promptNextComparison();
+        };
+        reader.readAsText(file);
+      };
+      fileInput.click();
+    }
+  </script>
+</body>
+</html>
+
