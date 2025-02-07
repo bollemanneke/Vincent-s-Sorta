@@ -52,7 +52,9 @@ Loading a Previous Session:
 
 5.	Installation & Setup
 
-No installation is required—simply open the provided HTML file in any modern web browser.
+No installation is required—simply open the provided HTML file in any modern web browser. Or use this link:
+https://bollemanneke.github.io/Vincent-s-Sorta/
+
 
 6.	Notes
 
