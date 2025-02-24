@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Vincent's Sorta</title>
+  <title>Sorta</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -42,7 +42,7 @@
 </head>
 
 <body>
-  <h1>Vincent's Sorta</h1>
+  <h1>Sorta</h1>
 
   <!-- ============ INPUT SECTION ============ -->
   <div id="add-item">
@@ -70,12 +70,15 @@
 
   <!-- ============ COMPARISON SECTION ============ -->
   <div id="sort-items" class="hidden">
-    <!-- Save button (accessible during sorting) now ABOVE the heading -->
+    <!-- Save button (accessible during sorting) -->
     <button onclick="saveItems()">Save to File</button>
     <br><br>
 
+    <!-- ADDED: round status changed to <h3>, no tabindex -->
+    <h3 id="round-status"></h3> <!-- Was <div>, now <h3> -->
+
     <h2>Which one do you prefer?</h2>
-    
+
     <div id="compare" class="compare-links">
       <span>
         <a href="#" id="item1"></a>
@@ -113,8 +116,11 @@
     let nextPassSubLists = [];
 
     // We'll store snapshots to enable full time-travel undo
-    // Each snapshot is a deep copy of all relevant structures
     let snapshots = [];
+
+    // Variables to track pass index and total passes
+    let passIndex = 0;
+    let totalPasses = 0;
 
     /*************************************************************
      *  START: Parse user input and possibly shuffle
@@ -151,6 +157,10 @@
       removedItems = new Set();
       snapshots = []; // Clear old snapshots
 
+      // Compute total passes, reset passIndex
+      totalPasses = Math.ceil(Math.log2(originalItems.length));
+      passIndex = 0;
+
       startPass();
     }
 
@@ -168,12 +178,14 @@
         return;
       }
 
+      passIndex++;
+      updateRoundStatus();
+
       // Pair sub-lists in twos
       for (let i = 0; i < subLists.length; i += 2) {
         const left = subLists[i];
         const right = subLists[i + 1];
         if (!right) {
-          // leftover single sub-list
           nextPassSubLists.push(left);
         } else {
           mergesInProgress.push({
@@ -188,11 +200,23 @@
       promptNextComparison();
     }
 
+    // ADDED: Force the focus back to #item1 after updating the round status
+    function updateRoundStatus() {
+      const roundStatusEl = document.getElementById('round-status');
+      roundStatusEl.textContent = `Round ${passIndex} of ${totalPasses}`;
+
+      // Ensure #item1 is always in focus after round changes
+      const item1Link = document.getElementById('item1');
+      if (item1Link) {
+        setTimeout(() => item1Link.focus(), 0);
+      }
+    }
+
     /*************************************************************
      *  PROMPT: Round-robin comparisons
      *************************************************************/
     function promptNextComparison() {
-      // Remove any merges that might have finished
+      // Remove merges that might be finished
       mergesInProgress = mergesInProgress.filter(m => !isMergeFinished(m));
 
       // If no merges left, pass is done
@@ -203,24 +227,22 @@
         return;
       }
 
-      // Ensure mergeIndex is valid
       if (mergeIndex >= mergesInProgress.length) {
         mergeIndex = 0;
       }
 
       const currentMerge = mergesInProgress[mergeIndex];
-      // Skip removed items on left side
+      // Skip removed items in left
       while (currentMerge.i < currentMerge.left.length &&
              removedItems.has(currentMerge.left[currentMerge.i])) {
         currentMerge.i++;
       }
-      // Skip removed items on right side
+      // Skip removed items in right
       while (currentMerge.j < currentMerge.right.length &&
              removedItems.has(currentMerge.right[currentMerge.j])) {
         currentMerge.j++;
       }
 
-      // If this merge is finished, finalize and remove it
       if (isMergeFinished(currentMerge)) {
         finalizeMerge(currentMerge);
         mergesInProgress.splice(mergeIndex, 1);
@@ -228,7 +250,6 @@
         return;
       }
 
-      // Otherwise, display the next pair
       const a = currentMerge.left[currentMerge.i];
       const b = currentMerge.right[currentMerge.j];
       displayComparison(a, b);
@@ -239,14 +260,12 @@
     }
 
     function finalizeMerge(m) {
-      // Add leftover items from left
       while (m.i < m.left.length) {
         const itm = m.left[m.i++];
         if (!removedItems.has(itm)) {
           m.merged.push(itm);
         }
       }
-      // Add leftover items from right
       while (m.j < m.right.length) {
         const itm = m.right[m.j++];
         if (!removedItems.has(itm)) {
@@ -294,7 +313,7 @@
      *  USER ACTION: 'a', 'b', 'removeA', 'removeB'
      *************************************************************/
     function userChose(choice) {
-      // 1) Before modifying anything, save snapshot so we can time-travel back
+      // Save snapshot for undo
       saveSnapshot();
 
       const currentMerge = mergesInProgress[mergeIndex];
@@ -326,7 +345,6 @@
           break;
       }
 
-      // Round-robin next
       if (isMergeFinished(currentMerge)) {
         finalizeMerge(currentMerge);
         mergesInProgress.splice(mergeIndex, 1);
@@ -343,11 +361,7 @@
      *************************************************************/
     function undo() {
       if (snapshots.length === 0) return;
-
-      // Restore the last saved snapshot
       restoreSnapshot();
-
-      // After restoring, resume from that state
       promptNextComparison();
       updateUndoVisibility();
     }
@@ -365,12 +379,12 @@
      *  SHOW RESULTS
      *************************************************************/
     function showResults(finalArray) {
+      // Hide the sort section (including the #round-status)
       document.getElementById('sort-items').classList.add('hidden');
       document.getElementById('result').classList.remove('hidden');
 
       const listEl = document.getElementById('sorted-items');
       listEl.innerHTML = '';
-      // Filter out removed items
       const filtered = finalArray.filter(item => !removedItems.has(item));
       filtered.forEach(item => {
         const li = document.createElement('li');
@@ -383,7 +397,6 @@
      *  SNAPSHOT (Time-Travel) LOGIC
      *************************************************************/
     function saveSnapshot() {
-      // We'll do a deep clone of all relevant data
       const snapshot = {
         subLists: deepCopy(subLists),
         passSize,
@@ -425,7 +438,6 @@
      *  FILE SAVE/LOAD FUNCTIONS
      *************************************************************/
     function saveItems() {
-      // Gather all necessary state in one object
       const state = {
         originalItems,
         removedItems: Array.from(removedItems),
@@ -437,15 +449,13 @@
         snapshots
       };
 
-      // Convert to JSON and create a Blob (no success message shown)
       const jsonString = JSON.stringify(state);
       const blob = new Blob([jsonString], { type: 'application/json' });
 
-      // Download the file by creating a temporary <a> link
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'sorta-state.json'; // Default filename
+      a.download = 'sorta-state.json';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -453,19 +463,16 @@
     }
 
     function loadItems() {
-      // Only works while the "Add Items" section is visible
       const fileInput = document.createElement('input');
       fileInput.type = 'file';
       fileInput.accept = 'application/json';
       fileInput.onchange = event => {
         const file = event.target.files[0];
-        if (!file) return;  // User canceled
+        if (!file) return;
 
         const reader = new FileReader();
         reader.onload = e => {
-          // Parse the JSON data from the file
           const data = JSON.parse(e.target.result);
-          // Restore into our state
           originalItems = data.originalItems;
           removedItems = new Set(data.removedItems);
           subLists = data.subLists;
@@ -475,11 +482,9 @@
           nextPassSubLists = data.nextPassSubLists;
           snapshots = data.snapshots;
 
-          // Hide the add section and show the sort section
           document.getElementById('add-item').classList.add('hidden');
           document.getElementById('sort-items').classList.remove('hidden');
 
-          // Resume sorting from this saved state
           promptNextComparison();
         };
         reader.readAsText(file);
@@ -489,4 +494,3 @@
   </script>
 </body>
 </html>
-
