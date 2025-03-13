@@ -64,7 +64,21 @@
       Shuffle items before sorting
     </label>
     <br><br>
-    
+
+    <!-- New radio buttons for choosing the sorting system -->
+    <div>
+      <label>
+        <input type="radio" name="sort-mode" value="smart" checked />
+        Smart Sorting (Efficient Ranking)
+      </label>
+      <br>
+      <label>
+        <input type="radio" name="sort-mode" value="thorough" />
+        Thorough Sorting (Compare Every Item With Every Other)
+      </label>
+    </div>
+    <br>
+
     <button onclick="startSorting()">Start</button>
   </div>
 
@@ -77,15 +91,7 @@
     <h2>Which one do you prefer?</h2>
     
     <div id="compare" class="compare-links">
-      <span>
-        <a href="#" id="item1"></a>
-        <a href="#" id="remove1" class="remove-link">Remove</a>
-      </span>
-      <span>OR</span>
-      <span>
-        <a href="#" id="item2"></a>
-        <a href="#" id="remove2" class="remove-link">Remove</a>
-      </span>
+      <!-- We'll dynamically rebuild this inner HTML every time in displayComparison -->
     </div>
     <div id="undo-container" class="hidden">
       <span class="undo-button" onclick="undo()">Undo</span>
@@ -105,19 +111,23 @@
     let originalItems = [];
     let removedItems = new Set();
     
-    // The round-robin bottom-up merge sort data
+    // For the original merge-sort approach
     let subLists = [];
     let passSize = 1;
     let mergesInProgress = [];
     let mergeIndex = 0;
     let nextPassSubLists = [];
 
-    // We'll store snapshots to enable full time-travel undo
-    // Each snapshot is a deep copy of all relevant structures
+    // For storing snapshots (undo/time-travel)
     let snapshots = [];
 
+    // For the structured approach
+    let pairs = [];       // Array of all [itemA, itemB] pairs
+    let pairIndex = 0;    // Index of current pair to compare
+    let wins = {};        // Keep track of how many wins each item has
+
     /*************************************************************
-     *  START: Parse user input and possibly shuffle
+     *  START SORTING (entry point)
      *************************************************************/
     function startSorting() {
       const input = document.getElementById('item-input').value.trim();
@@ -132,31 +142,47 @@
         return;
       }
 
-      // Hide the input section
+      // Hide the input section, show the comparison section
       document.getElementById('add-item').classList.add('hidden');
       document.getElementById('sort-items').classList.remove('hidden');
 
-      // Check the checkbox to see if we should shuffle
+      // Check if we should shuffle the initial list
       const shuffleCheck = document.getElementById('shuffle-check');
       if (shuffleCheck.checked) {
         shuffleArray(originalItems);
       }
 
+      // Reset global sets/maps/snapshots
+      removedItems = new Set();
+      snapshots = [];
+
+      // Read which radio button is selected
+      const mode = document.querySelector('input[name="sort-mode"]:checked').value;
+
+      // Branch accordingly
+      if (mode === 'smart') {
+        // Use merge sort
+        startMergesort();
+      } else {
+        // Use structured approach
+        startStructuredSorting();
+      }
+    }
+
+    /*************************************************************
+     *  MERGE-SORT APPROACH 
+     *************************************************************/
+    function startMergesort() {
       // Initialize subLists with single-item arrays
       subLists = originalItems.map(item => [item]);
       passSize = 1;
       mergesInProgress = [];
       mergeIndex = 0;
       nextPassSubLists = [];
-      removedItems = new Set();
-      snapshots = []; // Clear old snapshots
 
       startPass();
     }
 
-    /*************************************************************
-     *  PASSES: Pair up sub-lists for merges
-     *************************************************************/
     function startPass() {
       mergesInProgress = [];
       mergeIndex = 0;
@@ -188,11 +214,7 @@
       promptNextComparison();
     }
 
-    /*************************************************************
-     *  PROMPT: Round-robin comparisons
-     *************************************************************/
     function promptNextComparison() {
-      // Remove any merges that might have finished
       mergesInProgress = mergesInProgress.filter(m => !isMergeFinished(m));
 
       // If no merges left, pass is done
@@ -232,6 +254,29 @@
       const a = currentMerge.left[currentMerge.i];
       const b = currentMerge.right[currentMerge.j];
       displayComparison(a, b);
+
+      // AFTER displayComparison, override the click handlers:
+      const item1Link = document.getElementById('item1');
+      const item2Link = document.getElementById('item2');
+      const remove1Link = document.getElementById('remove1');
+      const remove2Link = document.getElementById('remove2');
+
+      item1Link.onclick = e => {
+        e.preventDefault();
+        userChose('a');
+      };
+      item2Link.onclick = e => {
+        e.preventDefault();
+        userChose('b');
+      };
+      remove1Link.onclick = e => {
+        e.preventDefault();
+        userChose('removeA');
+      };
+      remove2Link.onclick = e => {
+        e.preventDefault();
+        userChose('removeB');
+      };
     }
 
     function isMergeFinished(m) {
@@ -257,44 +302,167 @@
     }
 
     /*************************************************************
-     *  DISPLAY two items & set event handlers
+     *  STRUCTURED APPROACH
+     *  Compare every item vs every other item
      *************************************************************/
-    function displayComparison(a, b) {
+    function startStructuredSorting() {
+      // Build all pairwise combinations [itemA, itemB], with i < j
+      pairs = [];
+      for (let i = 0; i < originalItems.length; i++) {
+        for (let j = i + 1; j < originalItems.length; j++) {
+          pairs.push([originalItems[i], originalItems[j]]);
+        }
+      }
+
+      // Only shuffle the pair order if "Shuffle" was checked
+      const shuffleCheck = document.getElementById('shuffle-check');
+      if (shuffleCheck.checked) {
+        shuffleArray(pairs);
+      }
+
+      pairIndex = 0;
+
+      // Initialize wins count for every item
+      wins = {};
+      originalItems.forEach(item => {
+        wins[item] = 0;
+      });
+
+      promptNextStructuredComparison();
+    }
+
+    function promptNextStructuredComparison() {
+      // Skip pairs that involve removed items
+      while (
+        pairIndex < pairs.length &&
+        (removedItems.has(pairs[pairIndex][0]) ||
+         removedItems.has(pairs[pairIndex][1]))
+      ) {
+        pairIndex++;
+      }
+
+      // If we've exhausted all pairs, show final results
+      if (pairIndex >= pairs.length) {
+        showStructuredResults();
+        return;
+      }
+
+      // Show the next pair
+      const [a, b] = pairs[pairIndex];
+      displayComparison(a, b);
+
+      // EXACT same pattern as mergesort: AFTER we show them, set click handlers
       const item1Link = document.getElementById('item1');
       const item2Link = document.getElementById('item2');
       const remove1Link = document.getElementById('remove1');
       const remove2Link = document.getElementById('remove2');
 
-      item1Link.textContent = a;
-      item2Link.textContent = b;
-
-      // Always focus the first item link
-      setTimeout(() => item1Link.focus(), 0);
-
-      // Clear old handlers
       item1Link.onclick = e => {
         e.preventDefault();
-        userChose('a');
+        userChoseStructured('a');
       };
       item2Link.onclick = e => {
         e.preventDefault();
-        userChose('b');
+        userChoseStructured('b');
       };
       remove1Link.onclick = e => {
         e.preventDefault();
-        userChose('removeA');
+        userChoseStructured('removeA');
       };
       remove2Link.onclick = e => {
         e.preventDefault();
-        userChose('removeB');
+        userChoseStructured('removeB');
       };
     }
 
+    function userChoseStructured(choice) {
+      // Save snapshot before we modify anything
+      saveSnapshot();
+
+      if (pairIndex >= pairs.length) {
+        showStructuredResults();
+        return;
+      }
+
+      const [a, b] = pairs[pairIndex];
+      switch (choice) {
+        case 'a':
+          wins[a]++;
+          break;
+        case 'b':
+          wins[b]++;
+          break;
+        case 'removeA':
+          removedItems.add(a);
+          break;
+        case 'removeB':
+          removedItems.add(b);
+          break;
+      }
+
+      pairIndex++;
+      promptNextStructuredComparison();
+      updateUndoVisibility();
+    }
+
+    function showStructuredResults() {
+      document.getElementById('sort-items').classList.add('hidden');
+      document.getElementById('result').classList.remove('hidden');
+
+      const listEl = document.getElementById('sorted-items');
+      listEl.innerHTML = '';
+
+      // Filter out removed items
+      const filtered = originalItems.filter(item => !removedItems.has(item));
+      // Sort them by their total "wins" (descending)
+      filtered.sort((x, y) => wins[y] - wins[x]);
+
+      filtered.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        listEl.appendChild(li);
+      });
+    }
+
     /*************************************************************
-     *  USER ACTION: 'a', 'b', 'removeA', 'removeB'
+     *  DISPLAY COMPARISON (common to both approaches)
+     *  We rebuild the entire #compare content from scratch each time.
+     *  That ensures item1 is always a fresh element, so focus always works –
+     *  even if item1's text is unchanged from the prior step.
+     *************************************************************/
+    function displayComparison(a, b) {
+      const compareDiv = document.getElementById('compare');
+
+      // Rebuild the markup with fresh IDs
+      compareDiv.innerHTML = `
+        <span>
+          <a href="#" id="item1" tabindex="0"></a>
+          <a href="#" id="remove1" class="remove-link">Remove</a>
+        </span>
+        <span>OR</span>
+        <span>
+          <a href="#" id="item2" tabindex="0"></a>
+          <a href="#" id="remove2" class="remove-link">Remove</a>
+        </span>
+      `;
+
+      // Now that they're created, assign text and focus item1
+      const item1Link = document.getElementById('item1');
+      const item2Link = document.getElementById('item2');
+      item1Link.textContent = a;
+      item2Link.textContent = b;
+
+      // Force focus on item1
+      item1Link.focus();
+      // Fallback
+      setTimeout(() => item1Link.focus(), 50);
+    }
+
+    /*************************************************************
+     *  MERGE-SORT USER CHOICE
      *************************************************************/
     function userChose(choice) {
-      // 1) Before modifying anything, save snapshot so we can time-travel back
+      // 1) Before modifying anything, save snapshot
       saveSnapshot();
 
       const currentMerge = mergesInProgress[mergeIndex];
@@ -326,7 +494,7 @@
           break;
       }
 
-      // Round-robin next
+      // Move on
       if (isMergeFinished(currentMerge)) {
         finalizeMerge(currentMerge);
         mergesInProgress.splice(mergeIndex, 1);
@@ -339,30 +507,7 @@
     }
 
     /*************************************************************
-     *  UNDO: fully revert to the last saved snapshot
-     *************************************************************/
-    function undo() {
-      if (snapshots.length === 0) return;
-
-      // Restore the last saved snapshot
-      restoreSnapshot();
-
-      // After restoring, resume from that state
-      promptNextComparison();
-      updateUndoVisibility();
-    }
-
-    function updateUndoVisibility() {
-      const undoContainer = document.getElementById('undo-container');
-      if (snapshots.length > 0) {
-        undoContainer.classList.remove('hidden');
-      } else {
-        undoContainer.classList.add('hidden');
-      }
-    }
-
-    /*************************************************************
-     *  SHOW RESULTS
+     *  SHOW RESULTS (mergesort final)
      *************************************************************/
     function showResults(finalArray) {
       document.getElementById('sort-items').classList.add('hidden');
@@ -380,17 +525,48 @@
     }
 
     /*************************************************************
-     *  SNAPSHOT (Time-Travel) LOGIC
+     *  UNDO: fully revert to the last saved snapshot
+     *************************************************************/
+    function undo() {
+      if (snapshots.length === 0) return;
+
+      restoreSnapshot();
+      // After restoring, figure out which mode to proceed with
+      // If mergesInProgress has data, mergesort is active
+      if (mergesInProgress && mergesInProgress.length > 0) {
+        promptNextComparison();
+      } else {
+        // Otherwise, likely the structured approach is active
+        promptNextStructuredComparison();
+      }
+      updateUndoVisibility();
+    }
+
+    function updateUndoVisibility() {
+      const undoContainer = document.getElementById('undo-container');
+      if (snapshots.length > 0) {
+        undoContainer.classList.remove('hidden');
+      } else {
+        undoContainer.classList.add('hidden');
+      }
+    }
+
+    /*************************************************************
+     *  SNAPSHOT LOGIC (time-travel)
      *************************************************************/
     function saveSnapshot() {
-      // We'll do a deep clone of all relevant data
       const snapshot = {
         subLists: deepCopy(subLists),
         passSize,
         mergesInProgress: deepCopy(mergesInProgress),
         mergeIndex,
         nextPassSubLists: deepCopy(nextPassSubLists),
-        removedItems: new Set([...removedItems])
+        removedItems: new Set([...removedItems]),
+
+        // structured approach
+        pairs: deepCopy(pairs),
+        pairIndex,
+        wins: JSON.parse(JSON.stringify(wins))
       };
       snapshots.push(snapshot);
     }
@@ -405,6 +581,10 @@
       mergeIndex = snapshot.mergeIndex;
       nextPassSubLists = deepCopy(snapshot.nextPassSubLists);
       removedItems = new Set([...snapshot.removedItems]);
+
+      pairs = deepCopy(snapshot.pairs);
+      pairIndex = snapshot.pairIndex;
+      wins = JSON.parse(JSON.stringify(snapshot.wins));
     }
 
     function deepCopy(obj) {
@@ -437,7 +617,7 @@
         snapshots
       };
 
-      // Convert to JSON and create a Blob (no success message shown)
+      // Convert to JSON and create a Blob
       const jsonString = JSON.stringify(state);
       const blob = new Blob([jsonString], { type: 'application/json' });
 
@@ -445,7 +625,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'sorta-state.json'; // Default filename
+      a.download = 'sorta-state.json'; 
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -489,4 +669,3 @@
   </script>
 </body>
 </html>
-
