@@ -1,63 +1,52 @@
-Vincent's Sorta
+# Sorta - A Web App for Ranking Items
 
-Vincent's Sorta is a web-based tool designed for interactive ranking and sorting of items using a round-robin, bottom-up merge sort approach. It allows users to compare items in pairs, progressively determining their preferred order while offering options such as undo, removal, optional shuffling, and saving/loading sorting sessions.
+## Overview
+Sorta is a simple, interactive web app that allows users to rank items using one of two sorting methods. Users enter a list of items, choose a sorting method, and then make pairwise comparisons to determine the ranking.
 
-1.	Inspiration
+## Features
+- **Smart Sorting (Efficient Ranking)**: Uses a **merge-sort-based** approach to minimize the number of comparisons, making it the fastest option.
+- **Thorough Sorting (Compare Every Item with Every Other)**: Compares every possible pair of items for a **more detailed ranking** but takes longer.
+- **Shuffle Option**: Allows users to randomize the order before sorting starts.
+- **Undo Functionality**: Users can go back to previous steps if they make a mistake.
+- **Save and Load**: Users can save their progress and load rankings from a file.
 
-This app was inspired by, and therefore very closely modelled on, Sorta, available at Sorta.app. Although highly effective, it did not allow more than 50 items to be sorted, imposed a character limit and also made users publish everything on Mastodon before sorting was possible, which the author of this app did not find convenient.
+## How to Use
+1. **Enter Items**: Type a list of items, one per line.
+2. **Select a Sorting Method**:
+   - **Smart Sorting** (default): Faster, uses a structured merge-sort approach.
+   - **Thorough Sorting**: Slower, but compares every item with every other.
+3. **Start Sorting**: Click the "Start" button.
+4. **Make Comparisons**: Choose between two items in each comparison until the ranking is determined.
+5. **Undo Mistakes**: Click "Undo" to go back to the previous step.
+6. **View Results**: The sorted list is displayed when all comparisons are complete.
+7. **Save/Load Data**: Save your ranking to a file or load a previous ranking.
 
-2.	Features
+## Sorting Methods Explained
 
--	Interactive Sorting: Users compare two items at a time and choose their preference.
--	Round-Robin Merge Sorting: Items are ranked progressively using a structured merge sort process.
--	Undo Functionality: Reverse the last decision at any point.
--	Item Removal: Remove items from sorting without affecting the order of others.
--	Shuffle Option: Randomize the initial order before sorting starts.
--	Save & Load Sessions: Export and import sorting sessions to resume later.
--	Automatic Ranking: Once sorting is complete, the final ranked list is displayed.
+### **Smart Sorting (Efficient Ranking)**
+- Uses a **merge-sort-inspired** approach.
+- Breaks the list into smaller groups and merges them **step by step**.
+- Requires only **O(n log n)** comparisons, making it **very efficient** for long lists.
+- Best when speed is the priority.
 
-3.	How to Use
+### **Thorough Sorting (Compare Every Item with Every Other)**
+- Compares **every item against every other item**.
+- Items are ranked based on their total "wins" in these comparisons.
+- Requires **O(n²)** comparisons, making it much **slower** for large lists.
+- Best when a **fully exhaustive** ranking is needed.
 
-Enter Items:
+## System Requirements
+- A modern web browser (Chrome, Firefox, Edge, Safari).
+- JavaScript must be enabled.
 
--	Type or paste items into the text box (one per line).
--	Choose whether to shuffle them before sorting. This might help to avoid initial bias.
--	Click Start.
+## Notes
+- **Cannot select both sorting methods at once**.
+- The shuffle feature randomizes item order before sorting starts.
+- The undo feature allows for full history-based reversal of actions.
 
-Sorting Process:
+## License
+This project is free to use and modify. No license restrictions apply.
 
--	The app will present two items at a time.
--	Click on the item you prefer.
--	Alternatively, click Remove to exclude an item. Removing an item does not reset the sorting.
+## Contact
+For any questions or improvements, feel free to contribute!
 
-Undo & Save:
-
--	Use Undo to revert the last choice.
--	Click Save to File to store progress.
-
-View Final Results:
-
--	Once all comparisons are made, a sorted list will be displayed.
-
-Loading a Previous Session:
-
--	Click Load from File and select a previously saved JSON file.
-
-4.	Technologies Used
-
--	Chat GPT 4O and O1, without which this app would not have been possible.
--	HTML, CSS, JavaScript (Frontend)
--	Blob-based File Saving & Loading for session management
--	Merge Sort Algorithm adapted for interactive ranking
-
-5.	Installation & Setup
-
-No installation is required—simply open the provided HTML file in any modern web browser. Or use this link:
-https://bollemanneke.github.io/Vincent-s-Sorta/
-
-
-6.	Notes
-
--	The app requires JavaScript to be enabled.
--	Large lists may take longer to sort due to manual comparisons.
--	Although the app uses a merge sort algorithm, users will not be asked to sort individual groups at first. This keeps the sorting process as varied as possible.
